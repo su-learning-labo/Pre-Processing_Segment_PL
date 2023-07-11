@@ -32,7 +32,7 @@ def load_file(file):
 # --- 仕訳データの変換処理 ----
 def filtered_df(df):
     # 並び替えとカラムの整理、リネーム
-    df = df.query('摘要 != "合計"').filter(
+    df = df.filter(
         ['借方科目コード', '借方科目名称', '借方科目別補助コード', '借方科目別補助名称', '借方部門コード', '借方部門名称',
          '借方セグメント2', '借方セグメント２名称', '貸方科目コード', '貸方科目名称', '貸方科目別補助コード', '貸方科目別補助名称',
          '貸方部門コード', '貸方部門名称', '貸プセグメント2コード', '貸方セグメント２名称', '金額', '消費税', '摘要']) \
@@ -66,7 +66,7 @@ def convert_dr(df):
     _df = df.drop(
         ['cr_cd', 'cr_name', 'cr_sub_cd', 'cr_sub_name', 'cr_section_cd',
          'cr_section_name', 'cr_segment_cd', 'cr_segment_name'], axis=1
-    ).dropna()
+    ).dropna(subset='dr_cd').fillna(0)
 
     # カラムをリネーム
     _df.columns = ['ac_cd', 'ac_name', 'sub_cd', 'sub_name', 'section_cd', 'section_name', 'segment_cd',
@@ -95,7 +95,7 @@ def convert_cr(df):
     _df = df.drop(
         ['dr_cd', 'dr_name', 'dr_sub_cd', 'dr_sub_name', 'dr_section_cd',
          'dr_section_name', 'dr_segment_cd', 'dr_segment_name'], axis=1
-    ).dropna()
+    ).dropna(subset='cr_cd').fillna(0)
 
     # カラムをリネーム
     _df.columns = ['ac_cd', 'ac_name', 'sub_cd', 'sub_name', 'section_cd', 'section_name', 'segment_cd',
@@ -119,13 +119,14 @@ def calc_cr(df):
 # -- データ統合 --
 def concat_drcr(dr, cr):
     df = pd.concat([dr, cr]).reset_index(drop=True)
-    df.dropna(inplace=True)
+    df.dropna(subset='ac_cd', inplace=True)
     # 型変換
     df['ac_cd'] = df['ac_cd'].apply(lambda x: str(int(x)))
     df['sub_cd'] = df['sub_cd'].apply(lambda x: str(int(x)))
     df['section_cd'] = df['section_cd'].apply(lambda x: str(int(x)))
     df['segment_cd'] = df['segment_cd'].apply(lambda x: str(int(x)))
     df['price'] = df['price'].apply(lambda x: int(x))
+
     return df
 
 
@@ -211,36 +212,41 @@ def main():
     """
 
     # ヘッダーセクション
-    st.title('データ分析用変換ツール')
+    st.title('仕訳データの分析用変換ツール')
     st.caption('振替伝票仕訳データを使った、データ分析用コード変換処理')
 
     # サイドバーセクション
     side_header = st.sidebar.container()
     side_header.write('--FILE UPLOADER--')
-    side_header.write('#### 1.振替伝票')
+    side_header.write('#### 1.振替伝票 → 単票形式')
 
     uploaded_file = side_header.file_uploader('ファイル名：◯◯◯◯_YYYYMM', type='csv')
 
     side_header.write('---')
 
-    side_header.write('#### 2.横型 → 縦型への変換データ')
-    uploaded_wide_file = side_header.file_uploader('ファイル名: ◯◯◯◯_YYYYMM', type='csv')
+    side_header.write('#### 2.配賦データ → 縦変換')
+
     flg_box = side_header.radio('予算/実績の区分を選択', ('実績', '予算'))
+    uploaded_wide_file = side_header.file_uploader('ファイル名: ◯◯◯◯_YYYYMM', type='csv')
 
     # メインセクション
     container_main = st.container()
     container_main.write('---')
 
+    # １次処理用
     if uploaded_file is not None:
         # get_ym = get_file_name(uploaded_file)
 
         # ファイルの読み込み
         df = convert_df(uploaded_file)
+
         # 借方データの変換
         df_dr = calc_dr(df)
+
         # 貸方データの変換
         df_cr = calc_cr(df)
-        # 貸借データの連結
+
+        # 短表データの連結
         df_concat = concat_drcr(df_dr, df_cr)
 
         container_main.subheader('1-1. Result - Details')
@@ -256,7 +262,7 @@ def main():
         container_main.download_button(
             label='DL: 詳細データ',
             data=output_result_detail,
-            file_name=f'result_detail_{get_file_name(uploaded_wide_file)}.csv',
+            file_name=f'result_detail_{get_file_name(uploaded_file)}.csv',
             mime='text/csv'
         )
         container_main.caption(
@@ -282,7 +288,7 @@ def main():
         container_main.download_button(
             label='DL: 集計データ',
             data=output_result_grouped,
-            file_name=f'result_{get_file_name(uploaded_wide_file)}.csv',
+            file_name=f'result_{get_file_name(uploaded_file)}.csv',
             mime='text/csv'
         )
 
@@ -295,6 +301,7 @@ def main():
     else:
         container_main.write('左側のメニューからファイルをアップロードしてください。')
 
+    # 縦変換用処理
     if uploaded_wide_file is not None:
 
         df = load_long_data(uploaded_wide_file)
